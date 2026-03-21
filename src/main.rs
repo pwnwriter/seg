@@ -4,6 +4,7 @@ pub mod report;
 
 use clap::Parser;
 use cli::{Cli, Commands};
+use std::fs;
 use std::process;
 
 fn main() {
@@ -33,26 +34,38 @@ fn main() {
                 }
             };
 
-            println!("analyzing: {}", binary_path.display());
-
-            if let Some(ref dest) = markdown {
-                if dest == "-" {
-                    println!("[markdown -> stdout]");
-                } else {
-                    println!("[markdown -> {}]", dest);
-                }
-            }
+            let report = engine::analyze(&binary_path);
 
             if let Some(ref dest) = json {
+                let json_str = serde_json::to_string_pretty(&report).unwrap_or_else(|e| {
+                    eprintln!("error: failed to serialize report: {e}");
+                    process::exit(1);
+                });
+
                 if dest == "-" {
-                    println!("[json -> stdout]");
+                    println!("{json_str}");
                 } else {
-                    println!("[json -> {}]", dest);
+                    fs::write(dest, &json_str).unwrap_or_else(|e| {
+                        eprintln!("error: failed to write {dest}: {e}");
+                        process::exit(1);
+                    });
+                    eprintln!("wrote {dest}");
                 }
             }
 
-            // TODO: run engine, generate report
-            println!("(not implemented yet)");
+            if let Some(ref dest) = markdown {
+                // TODO: markdown renderer
+                let placeholder = format!("# seg Report: {}\n\n(markdown not implemented yet)\n", report.binary.name);
+                if dest == "-" {
+                    println!("{placeholder}");
+                } else {
+                    fs::write(dest, &placeholder).unwrap_or_else(|e| {
+                        eprintln!("error: failed to write {dest}: {e}");
+                        process::exit(1);
+                    });
+                    eprintln!("wrote {dest}");
+                }
+            }
         }
     }
 }

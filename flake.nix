@@ -20,6 +20,7 @@
         default = pkgs.mkShell {
 
           packages = with pkgs; [
+            bintools
           ];
 
           buildInputs = with pkgs; [ pkg-config ];

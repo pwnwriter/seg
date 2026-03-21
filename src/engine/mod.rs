@@ -50,8 +50,31 @@ pub fn analyze(binary_path: &Path) -> Report {
             String::new()
         });
 
-    let binary_info = parse_file_output(&file_output, &path_str, &name, &sha256);
+    // Run readelf -h (headers)
+    let readelf_h_output = run_cmd("readelf", &["-h", &path_str]).unwrap_or_else(|e| {
+        errors.push(e);
+        String::new()
+    });
+
+    // Run readelf -l (segments/program headers)
+    let readelf_l_output = run_cmd("readelf", &["-l", &path_str]).unwrap_or_else(|e| {
+        errors.push(e);
+        String::new()
+    });
+
+    // Run readelf -S (sections)
+    let readelf_s_output = run_cmd("readelf", &["-S", &path_str]).unwrap_or_else(|e| {
+        errors.push(e);
+        String::new()
+    });
+
+    let readelf_output = format!("{readelf_h_output}\n{readelf_l_output}\n{readelf_s_output}");
+
+    let mut binary_info = parse_file_output(&file_output, &path_str, &name, &sha256);
     let metadata = parse_stat_output(&stat_output);
+    let elf_headers = parse_readelf_headers(&readelf_h_output, &mut binary_info);
+    let segments = parse_readelf_segments(&readelf_l_output);
+    let sections = parse_readelf_sections(&readelf_s_output);
 
     let generated_at = chrono::Utc::now().to_rfc3339();
 
@@ -73,13 +96,9 @@ pub fn analyze(binary_path: &Path) -> Report {
             fortify: false,
         },
         elf: ElfInfo {
-            headers: ElfHeaders {
-                elf_type: String::new(),
-                machine: String::new(),
-                abi: String::new(),
-            },
-            segments: vec![],
-            sections: vec![],
+            headers: elf_headers,
+            segments,
+            sections,
         },
         libraries: Libraries {
             source: "ldd".to_string(),
@@ -145,7 +164,7 @@ pub fn analyze(binary_path: &Path) -> Report {
             stat: stat_output,
             ldd: String::new(),
             checksec: String::new(),
-            readelf: String::new(),
+            readelf: readelf_output,
             objdump: String::new(),
             strings: String::new(),
         },
@@ -228,6 +247,148 @@ fn parse_file_output(output: &str, path: &str, name: &str, sha256: &str) -> Bina
         entry_point: String::new(), // filled by readelf later
         sha256: sha256.to_string(),
     }
+}
+
+fn readelf_field(output: &str, key: &str) -> String {
+    output
+        .lines()
+        .find(|l| l.contains(key))
+        .and_then(|l| l.split(':').nth(1))
+        .map(|v| v.trim().to_string())
+        .unwrap_or_default()
+}
+
+fn parse_readelf_headers(output: &str, binary: &mut BinaryInfo) -> ElfHeaders {
+    let entry = readelf_field(output, "Entry point address:");
+    if !entry.is_empty() {
+        binary.entry_point = entry;
+    }
+
+    ElfHeaders {
+        elf_type: readelf_field(output, "Type:"),
+        machine: readelf_field(output, "Machine:"),
+        abi: readelf_field(output, "OS/ABI:"),
+    }
+}
+
+fn parse_readelf_segments(output: &str) -> Vec<Segment> {
+    // readelf -l output looks like:
+    //   Type           Offset   VirtAddr           PhysAddr           FileSiz  MemSiz   Flg Align
+    //   LOAD           0x000000 0x0000000000400000 0x0000000000400000 0x000abc 0x000abc R E 0x200000
+    let mut segments = Vec::new();
+    let mut in_table = false;
+
+    for line in output.lines() {
+        let trimmed = line.trim();
+
+        if trimmed.starts_with("Type") && trimmed.contains("Offset") {
+            in_table = true;
+            continue;
+        }
+
+        if !in_table {
+            continue;
+        }
+
+        if trimmed.is_empty() || trimmed.starts_with("Section to Segment") {
+            break;
+        }
+
+        let parts: Vec<&str> = trimmed.split_whitespace().collect();
+        if parts.len() >= 6 {
+            // Check if first field looks like a segment type
+            let seg_type = parts[0];
+            if !seg_type.chars().next().map(|c| c.is_ascii_uppercase()).unwrap_or(false) {
+                continue;
+            }
+
+            let offset = parts.get(1).unwrap_or(&"").to_string();
+            let vaddr = parts.get(2).unwrap_or(&"").to_string();
+            let filesz = parts.get(4).unwrap_or(&"").to_string();
+
+            // Flags are typically near the end — look for R/W/E pattern
+            let perms = parts
+                .iter()
+                .find(|p| {
+                    p.len() <= 4
+                        && p.chars()
+                            .all(|c| matches!(c, 'R' | 'W' | 'E' | ' '))
+                        && !p.is_empty()
+                })
+                .unwrap_or(&"")
+                .to_string();
+
+            segments.push(Segment {
+                seg_type: seg_type.to_string(),
+                offset,
+                virtual_address: vaddr,
+                size: filesz,
+                permissions: perms,
+            });
+        }
+    }
+
+    segments
+}
+
+fn parse_readelf_sections(output: &str) -> Vec<Section> {
+    // readelf -S output looks like:
+    //   [Nr] Name              Type             Address           Offset
+    //        Size              EntSize          Flags  Link  Info  Align
+    //   [ 1] .text             PROGBITS         0000000000401000  00001000
+    //        0000000000000250  0000000000000000  AX       0     0     16
+    let mut sections = Vec::new();
+    let lines: Vec<&str> = output.lines().collect();
+    let mut i = 0;
+
+    while i < lines.len() {
+        let line = lines[i].trim();
+
+        // Match lines like "  [ 1] .text  PROGBITS ..."
+        if line.starts_with('[') && line.contains(']') {
+            let after_bracket = line.split(']').nth(1).unwrap_or("").trim();
+            let parts: Vec<&str> = after_bracket.split_whitespace().collect();
+
+            if parts.len() >= 4 {
+                let name = parts[0].to_string();
+                // Skip NULL section
+                if name == "" || parts[1] == "NULL" {
+                    i += 1;
+                    continue;
+                }
+
+                let address = format!("0x{}", parts.get(2).unwrap_or(&""));
+                let offset = format!("0x{}", parts.get(3).unwrap_or(&""));
+
+                // Next line has size and flags
+                let mut size = String::new();
+                let mut flags = String::new();
+                if i + 1 < lines.len() {
+                    let next_parts: Vec<&str> =
+                        lines[i + 1].trim().split_whitespace().collect();
+                    if !next_parts.is_empty() {
+                        size = format!("0x{}", next_parts[0]);
+                    }
+                    if next_parts.len() >= 3 {
+                        flags = next_parts[2].to_string();
+                    }
+                    i += 1;
+                }
+
+                sections.push(Section {
+                    name,
+                    address,
+                    offset,
+                    size,
+                    flags,
+                });
+            }
+        }
+
+        i += 1;
+    }
+
+    sections
 }
 
 fn parse_stat_output(output: &str) -> FileMetadata {

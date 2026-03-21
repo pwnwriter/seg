@@ -68,10 +68,23 @@ pub fn analyze(binary_path: &Path) -> Report {
         String::new()
     });
 
-    let readelf_output = format!("{readelf_h_output}\n{readelf_l_output}\n{readelf_s_output}");
+    // Run readelf -d (dynamic entries)
+    let readelf_d_output = run_cmd("readelf", &["-d", &path_str]).unwrap_or_else(|e| {
+        errors.push(e);
+        String::new()
+    });
+
+    let readelf_output =
+        format!("{readelf_h_output}\n{readelf_l_output}\n{readelf_s_output}\n{readelf_d_output}");
 
     // Run strings
     let strings_output = run_cmd("strings", &["-a", &path_str]).unwrap_or_else(|e| {
+        errors.push(e);
+        String::new()
+    });
+
+    // Run ldd
+    let ldd_output = run_cmd("ldd", &[&path_str]).unwrap_or_else(|e| {
         errors.push(e);
         String::new()
     });
@@ -82,6 +95,8 @@ pub fn analyze(binary_path: &Path) -> Report {
     let segments = parse_readelf_segments(&readelf_l_output);
     let sections = parse_readelf_sections(&readelf_s_output);
     let strings_info = parse_strings(&strings_output);
+    let libraries = parse_ldd(&ldd_output);
+    let dynamic = parse_dynamic_entries(&readelf_d_output);
 
     let generated_at = chrono::Utc::now().to_rfc3339();
 
@@ -107,14 +122,8 @@ pub fn analyze(binary_path: &Path) -> Report {
             segments,
             sections,
         },
-        libraries: Libraries {
-            source: "ldd".to_string(),
-            items: vec![],
-        },
-        dynamic: DynamicInfo {
-            needed: vec![],
-            entries: vec![],
-        },
+        libraries,
+        dynamic,
         symbols: Symbols {
             imports: vec![],
             exports: vec![],
@@ -163,7 +172,7 @@ pub fn analyze(binary_path: &Path) -> Report {
         raw_outputs: RawOutputs {
             file: file_output,
             stat: stat_output,
-            ldd: String::new(),
+            ldd: ldd_output,
             checksec: String::new(),
             readelf: readelf_output,
             objdump: String::new(),
@@ -483,6 +492,97 @@ fn parse_strings(output: &str) -> StringsInfo {
         urls,
         suspicious,
     }
+}
+
+fn parse_ldd(output: &str) -> Libraries {
+    // ldd output looks like:
+    //   libc.so.6 => /lib/x86_64-linux-gnu/libc.so.6 (0x7ffff7dd0000)
+    //   /lib64/ld-linux-x86-64.so.2 (0x7ffff7fce000)
+    let mut items = Vec::new();
+
+    for line in output.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.contains("not a dynamic executable") {
+            continue;
+        }
+
+        if trimmed.contains("=>") {
+            // libc.so.6 => /lib/.../libc.so.6 (0x7ffff7dd0000)
+            let parts: Vec<&str> = trimmed.splitn(2, "=>").collect();
+            let name = parts[0].trim().to_string();
+            let rest = parts.get(1).unwrap_or(&"").trim();
+
+            let (path, base) = if let Some(paren_pos) = rest.find('(') {
+                let path = rest[..paren_pos].trim().to_string();
+                let base = rest[paren_pos..]
+                    .trim_matches(|c| c == '(' || c == ')')
+                    .trim()
+                    .to_string();
+                (path, base)
+            } else {
+                (rest.to_string(), String::new())
+            };
+
+            items.push(Library {
+                name,
+                path,
+                runtime_base: base,
+            });
+        } else if let Some(paren_pos) = trimmed.find('(') {
+            // /lib64/ld-linux-x86-64.so.2 (0x7ffff7fce000)
+            let path = trimmed[..paren_pos].trim().to_string();
+            let base = trimmed[paren_pos..]
+                .trim_matches(|c| c == '(' || c == ')')
+                .trim()
+                .to_string();
+            let name = path.rsplit('/').next().unwrap_or(&path).to_string();
+
+            items.push(Library {
+                name,
+                path,
+                runtime_base: base,
+            });
+        }
+    }
+
+    Libraries {
+        source: "ldd".to_string(),
+        items,
+    }
+}
+
+fn parse_dynamic_entries(output: &str) -> DynamicInfo {
+    // readelf -d output looks like:
+    //  Tag        Type                         Name/Value
+    //  0x0000000000000001 (NEEDED)             Shared library: [libc.so.6]
+    //  0x000000000000000c (INIT)               0x401000
+    let mut needed = Vec::new();
+    let mut entries = Vec::new();
+
+    for line in output.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with("Tag") || trimmed.starts_with("Dynamic") {
+            continue;
+        }
+
+        // Extract tag from parentheses
+        if let (Some(open), Some(close)) = (trimmed.find('('), trimmed.find(')')) {
+            let tag = trimmed[open + 1..close].trim().to_string();
+
+            let value = trimmed[close + 1..].trim().to_string();
+
+            // Extract NEEDED libraries
+            if tag == "NEEDED" {
+                if let (Some(lb), Some(rb)) = (value.find('['), value.find(']')) {
+                    needed.push(value[lb + 1..rb].to_string());
+                }
+            }
+
+            entries.push(DynamicEntry { tag, value });
+        }
+    }
+
+    DynamicInfo { needed, entries }
 }
 
 fn parse_stat_output(output: &str) -> FileMetadata {

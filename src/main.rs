@@ -55,7 +55,10 @@ fn main() {
 
             if let Some(ref dest) = markdown {
                 // TODO: markdown renderer
-                let placeholder = format!("# seg Report: {}\n\n(markdown not implemented yet)\n", report.binary.name);
+                let placeholder = format!(
+                    "# seg Report: {}\n\n(markdown not implemented yet)\n",
+                    report.binary.name
+                );
                 if dest == "-" {
                     println!("{placeholder}");
                 } else {

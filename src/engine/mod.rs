@@ -70,11 +70,18 @@ pub fn analyze(binary_path: &Path) -> Report {
 
     let readelf_output = format!("{readelf_h_output}\n{readelf_l_output}\n{readelf_s_output}");
 
+    // Run strings
+    let strings_output = run_cmd("strings", &["-a", &path_str]).unwrap_or_else(|e| {
+        errors.push(e);
+        String::new()
+    });
+
     let mut binary_info = parse_file_output(&file_output, &path_str, &name, &sha256);
     let metadata = parse_stat_output(&stat_output);
     let elf_headers = parse_readelf_headers(&readelf_h_output, &mut binary_info);
     let segments = parse_readelf_segments(&readelf_l_output);
     let sections = parse_readelf_sections(&readelf_s_output);
+    let strings_info = parse_strings(&strings_output);
 
     let generated_at = chrono::Utc::now().to_rfc3339();
 
@@ -112,13 +119,7 @@ pub fn analyze(binary_path: &Path) -> Report {
             imports: vec![],
             exports: vec![],
         },
-        strings: StringsInfo {
-            shell: vec![],
-            format_strings: vec![],
-            paths: vec![],
-            urls: vec![],
-            suspicious: vec![],
-        },
+        strings: strings_info,
         disassembly: Disassembly {
             entry: String::new(),
             main: String::new(),
@@ -166,7 +167,7 @@ pub fn analyze(binary_path: &Path) -> Report {
             checksec: String::new(),
             readelf: readelf_output,
             objdump: String::new(),
-            strings: String::new(),
+            strings: strings_output,
         },
         errors,
     }
@@ -298,7 +299,12 @@ fn parse_readelf_segments(output: &str) -> Vec<Segment> {
         if parts.len() >= 6 {
             // Check if first field looks like a segment type
             let seg_type = parts[0];
-            if !seg_type.chars().next().map(|c| c.is_ascii_uppercase()).unwrap_or(false) {
+            if !seg_type
+                .chars()
+                .next()
+                .map(|c| c.is_ascii_uppercase())
+                .unwrap_or(false)
+            {
                 continue;
             }
 
@@ -311,8 +317,7 @@ fn parse_readelf_segments(output: &str) -> Vec<Segment> {
                 .iter()
                 .find(|p| {
                     p.len() <= 4
-                        && p.chars()
-                            .all(|c| matches!(c, 'R' | 'W' | 'E' | ' '))
+                        && p.chars().all(|c| matches!(c, 'R' | 'W' | 'E' | ' '))
                         && !p.is_empty()
                 })
                 .unwrap_or(&"")
@@ -364,8 +369,7 @@ fn parse_readelf_sections(output: &str) -> Vec<Section> {
                 let mut size = String::new();
                 let mut flags = String::new();
                 if i + 1 < lines.len() {
-                    let next_parts: Vec<&str> =
-                        lines[i + 1].trim().split_whitespace().collect();
+                    let next_parts: Vec<&str> = lines[i + 1].trim().split_whitespace().collect();
                     if !next_parts.is_empty() {
                         size = format!("0x{}", next_parts[0]);
                     }
@@ -389,6 +393,96 @@ fn parse_readelf_sections(output: &str) -> Vec<Section> {
     }
 
     sections
+}
+
+fn parse_strings(output: &str) -> StringsInfo {
+    let mut shell = Vec::new();
+    let mut format_strings = Vec::new();
+    let mut paths = Vec::new();
+    let mut urls = Vec::new();
+    let mut suspicious = Vec::new();
+
+    let shell_patterns = [
+        "/bin/sh",
+        "/bin/bash",
+        "/bin/zsh",
+        "/bin/dash",
+        "system(",
+        "exec(",
+        "popen(",
+        "execve(",
+    ];
+    let suspicious_keywords = [
+        "password",
+        "secret",
+        "token",
+        "admin",
+        "root",
+        "login",
+        "access denied",
+        "flag{",
+        "CTF{",
+        "key=",
+        "debug",
+    ];
+
+    for line in output.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.len() < 4 {
+            continue;
+        }
+
+        // Shell / command strings
+        if shell_patterns.iter().any(|p| trimmed.contains(p)) {
+            shell.push(trimmed.to_string());
+            continue;
+        }
+
+        // Format strings (contains %s, %p, %x, %n, %d with context suggesting printf-style)
+        if trimmed.contains('%')
+            && ["%s", "%p", "%x", "%n", "%d", "%lx", "%08x"]
+                .iter()
+                .any(|p| trimmed.contains(p))
+        {
+            format_strings.push(trimmed.to_string());
+            continue;
+        }
+
+        // URLs
+        if trimmed.starts_with("http://")
+            || trimmed.starts_with("https://")
+            || trimmed.starts_with("ftp://")
+        {
+            urls.push(trimmed.to_string());
+            continue;
+        }
+
+        // File paths
+        if (trimmed.starts_with('/') && trimmed.len() > 2 && trimmed.contains('/'))
+            || trimmed.starts_with("./")
+            || trimmed.starts_with("../")
+        {
+            paths.push(trimmed.to_string());
+            continue;
+        }
+
+        // Suspicious keywords
+        let lower = trimmed.to_lowercase();
+        if suspicious_keywords
+            .iter()
+            .any(|kw| lower.contains(&kw.to_lowercase()))
+        {
+            suspicious.push(trimmed.to_string());
+        }
+    }
+
+    StringsInfo {
+        shell,
+        format_strings,
+        paths,
+        urls,
+        suspicious,
+    }
 }
 
 fn parse_stat_output(output: &str) -> FileMetadata {

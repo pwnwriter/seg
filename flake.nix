@@ -12,18 +12,25 @@
         "x86_64-darwin"
         "aarch64-darwin"
       ];
+
       forAllSystems =
         function: nixpkgs.lib.genAttrs systems (system: function (import nixpkgs { inherit system; }));
     in
     {
       devShells = forAllSystems (pkgs: {
         default = pkgs.mkShell {
+          packages =
+            with pkgs;
+            [
+              bintools
+            ]
+            ++ lib.optionals stdenv.isLinux [
+              checksec
+            ];
 
-          packages = with pkgs; [
-            bintools
+          buildInputs = with pkgs; [
+            pkg-config
           ];
-
-          buildInputs = with pkgs; [ pkg-config ];
 
           shellHook = ''
             echo "DevShell🚀: initiated"

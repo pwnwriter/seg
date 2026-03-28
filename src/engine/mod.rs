@@ -89,6 +89,12 @@ pub fn analyze(binary_path: &Path) -> Report {
         String::new()
     });
 
+    // Run checksec
+    let checksec_output = run_cmd("checksec", &["--file", &path_str]).unwrap_or_else(|e| {
+        errors.push(e);
+        String::new()
+    });
+
     let mut binary_info = parse_file_output(&file_output, &path_str, &name, &sha256);
     let metadata = parse_stat_output(&stat_output);
     let elf_headers = parse_readelf_headers(&readelf_h_output, &mut binary_info);
@@ -97,6 +103,7 @@ pub fn analyze(binary_path: &Path) -> Report {
     let strings_info = parse_strings(&strings_output);
     let libraries = parse_ldd(&ldd_output);
     let dynamic = parse_dynamic_entries(&readelf_d_output);
+    let protections = parse_checksec(&checksec_output);
 
     let generated_at = chrono::Utc::now().to_rfc3339();
 
@@ -110,13 +117,7 @@ pub fn analyze(binary_path: &Path) -> Report {
         },
         binary: binary_info,
         metadata,
-        protections: Protections {
-            pie: false,
-            nx: false,
-            canary: false,
-            relro: String::new(),
-            fortify: false,
-        },
+        protections,
         elf: ElfInfo {
             headers: elf_headers,
             segments,
@@ -173,7 +174,7 @@ pub fn analyze(binary_path: &Path) -> Report {
             file: file_output,
             stat: stat_output,
             ldd: ldd_output,
-            checksec: String::new(),
+            checksec: checksec_output,
             readelf: readelf_output,
             objdump: String::new(),
             strings: strings_output,
@@ -583,6 +584,33 @@ fn parse_dynamic_entries(output: &str) -> DynamicInfo {
     }
 
     DynamicInfo { needed, entries }
+}
+
+fn parse_checksec(output: &str) -> Protections {
+    let lower = output.to_lowercase();
+
+    let pie = lower.contains("pie enabled");
+    let nx = lower.contains("nx enabled");
+    let canary = lower.contains("canary found") && !lower.contains("no canary found");
+    let fortify = lower.contains("fortify") && !lower.contains("no fortify");
+
+    let relro = if lower.contains("full relro") {
+        "full".to_string()
+    } else if lower.contains("partial relro") {
+        "partial".to_string()
+    } else if lower.contains("no relro") {
+        "none".to_string()
+    } else {
+        String::new()
+    };
+
+    Protections {
+        pie,
+        nx,
+        canary,
+        relro,
+        fortify,
+    }
 }
 
 fn parse_stat_output(output: &str) -> FileMetadata {

@@ -1,3 +1,11 @@
+mod binary;
+mod checksec;
+mod disassembly;
+mod elf;
+mod libraries;
+mod strings;
+mod symbols;
+
 use std::collections::HashMap;
 use std::path::Path;
 use std::process::Command;
@@ -96,16 +104,18 @@ pub fn analyze(binary_path: &Path) -> Report {
     });
 
     // Run readelf --dyn-syms (dynamic symbols)
-    let readelf_dynsym_output = run_cmd("readelf", &["--dyn-syms", &path_str]).unwrap_or_else(|e| {
-        errors.push(e);
-        String::new()
-    });
+    let readelf_dynsym_output =
+        run_cmd("readelf", &["--dyn-syms", &path_str]).unwrap_or_else(|e| {
+            errors.push(e);
+            String::new()
+        });
 
     // Run objdump -d for PLT (just the .plt section)
-    let objdump_plt_output = run_cmd("objdump", &["-d", "-j", ".plt", &path_str]).unwrap_or_else(|e| {
-        errors.push(e);
-        String::new()
-    });
+    let objdump_plt_output =
+        run_cmd("objdump", &["-d", "-j", ".plt", &path_str]).unwrap_or_else(|e| {
+            errors.push(e);
+            String::new()
+        });
 
     // Run objdump -R for GOT relocations
     let objdump_r_output = run_cmd("objdump", &["-R", &path_str]).unwrap_or_else(|e| {
@@ -113,16 +123,25 @@ pub fn analyze(binary_path: &Path) -> Report {
         String::new()
     });
 
-    let mut binary_info = parse_file_output(&file_output, &path_str, &name, &sha256);
-    let metadata = parse_stat_output(&stat_output);
-    let elf_headers = parse_readelf_headers(&readelf_h_output, &mut binary_info);
-    let segments = parse_readelf_segments(&readelf_l_output);
-    let sections = parse_readelf_sections(&readelf_s_output);
-    let strings_info = parse_strings(&strings_output);
-    let libraries = parse_ldd(&ldd_output);
-    let dynamic = parse_dynamic_entries(&readelf_d_output);
-    let protections = parse_checksec(&checksec_output);
-    let symbols = parse_symbols(&readelf_dynsym_output, &objdump_plt_output, &objdump_r_output);
+    // Run objdump -d for full disassembly
+    let objdump_d_output = run_cmd("objdump", &["-d", &path_str]).unwrap_or_else(|e| {
+        errors.push(e);
+        String::new()
+    });
+
+    // Parse all outputs
+    let mut binary_info = binary::parse_file_output(&file_output, &path_str, &name, &sha256);
+    let metadata = binary::parse_stat_output(&stat_output);
+    let elf_headers = elf::parse_readelf_headers(&readelf_h_output, &mut binary_info);
+    let segments = elf::parse_readelf_segments(&readelf_l_output);
+    let sections = elf::parse_readelf_sections(&readelf_s_output);
+    let strings_info = strings::parse_strings(&strings_output);
+    let libraries = libraries::parse_ldd(&ldd_output);
+    let dynamic = libraries::parse_dynamic_entries(&readelf_d_output);
+    let protections = checksec::parse_checksec(&checksec_output);
+    let syms = symbols::parse_symbols(&readelf_dynsym_output, &objdump_plt_output, &objdump_r_output);
+    let disasm = disassembly::parse_disassembly(&objdump_d_output, &binary_info.entry_point);
+    let dangerous_functions = disassembly::detect_dangerous_functions(&syms, &objdump_d_output);
 
     let generated_at = chrono::Utc::now().to_rfc3339();
 
@@ -144,14 +163,10 @@ pub fn analyze(binary_path: &Path) -> Report {
         },
         libraries,
         dynamic,
-        symbols,
+        symbols: syms,
         strings: strings_info,
-        disassembly: Disassembly {
-            entry: String::new(),
-            main: String::new(),
-            suspicious_functions: vec![],
-        },
-        dangerous_functions: vec![],
+        disassembly: disasm,
+        dangerous_functions,
         exploitation_hints: ExploitationHints {
             buffer_overflow_likely: false,
             format_string_likely: false,
@@ -196,570 +211,5 @@ pub fn analyze(binary_path: &Path) -> Report {
             strings: strings_output,
         },
         errors,
-    }
-}
-
-fn parse_file_output(output: &str, path: &str, name: &str, sha256: &str) -> BinaryInfo {
-    let output = output.trim();
-
-    let file_type = output
-        .split(": ")
-        .nth(1)
-        .unwrap_or("")
-        .split(',')
-        .next()
-        .unwrap_or("")
-        .trim()
-        .to_string();
-
-    let arch = if output.contains("x86-64") || output.contains("x86_64") {
-        "x86_64"
-    } else if output.contains("aarch64") || output.contains("ARM aarch64") {
-        "aarch64"
-    } else if output.contains("ARM") {
-        "arm"
-    } else if output.contains("80386") || output.contains("Intel 80386") {
-        "i386"
-    } else if output.contains("MIPS") {
-        "mips"
-    } else if output.contains("PowerPC") {
-        "ppc"
-    } else {
-        "unknown"
-    }
-    .to_string();
-
-    let bits = if output.contains("64-bit") {
-        64
-    } else if output.contains("32-bit") {
-        32
-    } else {
-        0
-    };
-
-    let endianness = if output.contains("LSB") {
-        "little"
-    } else if output.contains("MSB") {
-        "big"
-    } else {
-        "unknown"
-    }
-    .to_string();
-
-    let stripped = output.contains("stripped") && !output.contains("not stripped");
-    let is_static = output.contains("statically linked");
-
-    let interpreter = if output.contains("interpreter") {
-        output
-            .split("interpreter ")
-            .nth(1)
-            .and_then(|s| s.split(',').next())
-            .unwrap_or("")
-            .trim()
-            .to_string()
-    } else {
-        String::new()
-    };
-
-    BinaryInfo {
-        path: path.to_string(),
-        name: name.to_string(),
-        file_type,
-        architecture: arch,
-        bits,
-        endianness,
-        interpreter,
-        stripped,
-        is_static,
-        entry_point: String::new(), // filled by readelf later
-        sha256: sha256.to_string(),
-    }
-}
-
-fn readelf_field(output: &str, key: &str) -> String {
-    output
-        .lines()
-        .find(|l| l.contains(key))
-        .and_then(|l| l.split(':').nth(1))
-        .map(|v| v.trim().to_string())
-        .unwrap_or_default()
-}
-
-fn parse_readelf_headers(output: &str, binary: &mut BinaryInfo) -> ElfHeaders {
-    let entry = readelf_field(output, "Entry point address:");
-    if !entry.is_empty() {
-        binary.entry_point = entry;
-    }
-
-    ElfHeaders {
-        elf_type: readelf_field(output, "Type:"),
-        machine: readelf_field(output, "Machine:"),
-        abi: readelf_field(output, "OS/ABI:"),
-    }
-}
-
-fn parse_readelf_segments(output: &str) -> Vec<Segment> {
-    // readelf -l output looks like:
-    //   Type           Offset   VirtAddr           PhysAddr           FileSiz  MemSiz   Flg Align
-    //   LOAD           0x000000 0x0000000000400000 0x0000000000400000 0x000abc 0x000abc R E 0x200000
-    let mut segments = Vec::new();
-    let mut in_table = false;
-
-    for line in output.lines() {
-        let trimmed = line.trim();
-
-        if trimmed.starts_with("Type") && trimmed.contains("Offset") {
-            in_table = true;
-            continue;
-        }
-
-        if !in_table {
-            continue;
-        }
-
-        if trimmed.is_empty() || trimmed.starts_with("Section to Segment") {
-            break;
-        }
-
-        let parts: Vec<&str> = trimmed.split_whitespace().collect();
-        if parts.len() >= 6 {
-            // Check if first field looks like a segment type
-            let seg_type = parts[0];
-            if !seg_type
-                .chars()
-                .next()
-                .map(|c| c.is_ascii_uppercase())
-                .unwrap_or(false)
-            {
-                continue;
-            }
-
-            let offset = parts.get(1).unwrap_or(&"").to_string();
-            let vaddr = parts.get(2).unwrap_or(&"").to_string();
-            let filesz = parts.get(4).unwrap_or(&"").to_string();
-
-            // Flags are typically near the end — look for R/W/E pattern
-            let perms = parts
-                .iter()
-                .find(|p| {
-                    p.len() <= 4
-                        && p.chars().all(|c| matches!(c, 'R' | 'W' | 'E' | ' '))
-                        && !p.is_empty()
-                })
-                .unwrap_or(&"")
-                .to_string();
-
-            segments.push(Segment {
-                seg_type: seg_type.to_string(),
-                offset,
-                virtual_address: vaddr,
-                size: filesz,
-                permissions: perms,
-            });
-        }
-    }
-
-    segments
-}
-
-fn parse_readelf_sections(output: &str) -> Vec<Section> {
-    // readelf -S output looks like:
-    //   [Nr] Name              Type             Address           Offset
-    //        Size              EntSize          Flags  Link  Info  Align
-    //   [ 1] .text             PROGBITS         0000000000401000  00001000
-    //        0000000000000250  0000000000000000  AX       0     0     16
-    let mut sections = Vec::new();
-    let lines: Vec<&str> = output.lines().collect();
-    let mut i = 0;
-
-    while i < lines.len() {
-        let line = lines[i].trim();
-
-        // Match lines like "  [ 1] .text  PROGBITS ..."
-        if line.starts_with('[') && line.contains(']') {
-            let after_bracket = line.split(']').nth(1).unwrap_or("").trim();
-            let parts: Vec<&str> = after_bracket.split_whitespace().collect();
-
-            if parts.len() >= 4 {
-                let name = parts[0].to_string();
-                // Skip NULL section
-                if name == "" || parts[1] == "NULL" {
-                    i += 1;
-                    continue;
-                }
-
-                let address = format!("0x{}", parts.get(2).unwrap_or(&""));
-                let offset = format!("0x{}", parts.get(3).unwrap_or(&""));
-
-                // Next line has size and flags
-                let mut size = String::new();
-                let mut flags = String::new();
-                if i + 1 < lines.len() {
-                    let next_parts: Vec<&str> = lines[i + 1].trim().split_whitespace().collect();
-                    if !next_parts.is_empty() {
-                        size = format!("0x{}", next_parts[0]);
-                    }
-                    if next_parts.len() >= 3 {
-                        flags = next_parts[2].to_string();
-                    }
-                    i += 1;
-                }
-
-                sections.push(Section {
-                    name,
-                    address,
-                    offset,
-                    size,
-                    flags,
-                });
-            }
-        }
-
-        i += 1;
-    }
-
-    sections
-}
-
-fn parse_strings(output: &str) -> StringsInfo {
-    let mut shell = Vec::new();
-    let mut format_strings = Vec::new();
-    let mut paths = Vec::new();
-    let mut urls = Vec::new();
-    let mut suspicious = Vec::new();
-
-    let shell_patterns = [
-        "/bin/sh",
-        "/bin/bash",
-        "/bin/zsh",
-        "/bin/dash",
-        "system(",
-        "exec(",
-        "popen(",
-        "execve(",
-    ];
-    let suspicious_keywords = [
-        "password",
-        "secret",
-        "token",
-        "admin",
-        "root",
-        "login",
-        "access denied",
-        "flag{",
-        "CTF{",
-        "key=",
-        "debug",
-    ];
-
-    for line in output.lines() {
-        let trimmed = line.trim();
-        if trimmed.is_empty() || trimmed.len() < 4 {
-            continue;
-        }
-
-        // Shell / command strings
-        if shell_patterns.iter().any(|p| trimmed.contains(p)) {
-            shell.push(trimmed.to_string());
-            continue;
-        }
-
-        // Format strings (contains %s, %p, %x, %n, %d with context suggesting printf-style)
-        if trimmed.contains('%')
-            && ["%s", "%p", "%x", "%n", "%d", "%lx", "%08x"]
-                .iter()
-                .any(|p| trimmed.contains(p))
-        {
-            format_strings.push(trimmed.to_string());
-            continue;
-        }
-
-        // URLs
-        if trimmed.starts_with("http://")
-            || trimmed.starts_with("https://")
-            || trimmed.starts_with("ftp://")
-        {
-            urls.push(trimmed.to_string());
-            continue;
-        }
-
-        // File paths
-        if (trimmed.starts_with('/') && trimmed.len() > 2 && trimmed.contains('/'))
-            || trimmed.starts_with("./")
-            || trimmed.starts_with("../")
-        {
-            paths.push(trimmed.to_string());
-            continue;
-        }
-
-        // Suspicious keywords
-        let lower = trimmed.to_lowercase();
-        if suspicious_keywords
-            .iter()
-            .any(|kw| lower.contains(&kw.to_lowercase()))
-        {
-            suspicious.push(trimmed.to_string());
-        }
-    }
-
-    StringsInfo {
-        shell,
-        format_strings,
-        paths,
-        urls,
-        suspicious,
-    }
-}
-
-fn parse_ldd(output: &str) -> Libraries {
-    // ldd output looks like:
-    //   libc.so.6 => /lib/x86_64-linux-gnu/libc.so.6 (0x7ffff7dd0000)
-    //   /lib64/ld-linux-x86-64.so.2 (0x7ffff7fce000)
-    let mut items = Vec::new();
-
-    for line in output.lines() {
-        let trimmed = line.trim();
-        if trimmed.is_empty() || trimmed.contains("not a dynamic executable") {
-            continue;
-        }
-
-        if trimmed.contains("=>") {
-            // libc.so.6 => /lib/.../libc.so.6 (0x7ffff7dd0000)
-            let parts: Vec<&str> = trimmed.splitn(2, "=>").collect();
-            let name = parts[0].trim().to_string();
-            let rest = parts.get(1).unwrap_or(&"").trim();
-
-            let (path, base) = if let Some(paren_pos) = rest.find('(') {
-                let path = rest[..paren_pos].trim().to_string();
-                let base = rest[paren_pos..]
-                    .trim_matches(|c| c == '(' || c == ')')
-                    .trim()
-                    .to_string();
-                (path, base)
-            } else {
-                (rest.to_string(), String::new())
-            };
-
-            items.push(Library {
-                name,
-                path,
-                runtime_base: base,
-            });
-        } else if let Some(paren_pos) = trimmed.find('(') {
-            // /lib64/ld-linux-x86-64.so.2 (0x7ffff7fce000)
-            let path = trimmed[..paren_pos].trim().to_string();
-            let base = trimmed[paren_pos..]
-                .trim_matches(|c| c == '(' || c == ')')
-                .trim()
-                .to_string();
-            let name = path.rsplit('/').next().unwrap_or(&path).to_string();
-
-            items.push(Library {
-                name,
-                path,
-                runtime_base: base,
-            });
-        }
-    }
-
-    Libraries {
-        source: "ldd".to_string(),
-        items,
-    }
-}
-
-fn parse_dynamic_entries(output: &str) -> DynamicInfo {
-    // readelf -d output looks like:
-    //  Tag        Type                         Name/Value
-    //  0x0000000000000001 (NEEDED)             Shared library: [libc.so.6]
-    //  0x000000000000000c (INIT)               0x401000
-    let mut needed = Vec::new();
-    let mut entries = Vec::new();
-
-    for line in output.lines() {
-        let trimmed = line.trim();
-        if trimmed.is_empty() || trimmed.starts_with("Tag") || trimmed.starts_with("Dynamic") {
-            continue;
-        }
-
-        // Extract tag from parentheses
-        if let (Some(open), Some(close)) = (trimmed.find('('), trimmed.find(')')) {
-            let tag = trimmed[open + 1..close].trim().to_string();
-
-            let value = trimmed[close + 1..].trim().to_string();
-
-            // Extract NEEDED libraries
-            if tag == "NEEDED" {
-                if let (Some(lb), Some(rb)) = (value.find('['), value.find(']')) {
-                    needed.push(value[lb + 1..rb].to_string());
-                }
-            }
-
-            entries.push(DynamicEntry { tag, value });
-        }
-    }
-
-    DynamicInfo { needed, entries }
-}
-
-fn parse_symbols(
-    dynsym_output: &str,
-    plt_output: &str,
-    got_output: &str,
-) -> Symbols {
-    let mut imports = Vec::new();
-    let mut exports = Vec::new();
-
-    // Build PLT address map from objdump -d -j .plt
-    // Lines look like: 0000000000401030 <puts@plt>:
-    let mut plt_map: HashMap<String, String> = HashMap::new();
-    for line in plt_output.lines() {
-        if line.contains("@plt>:") {
-            let parts: Vec<&str> = line.split_whitespace().collect();
-            if let Some(addr) = parts.first() {
-                let name = line
-                    .split('<')
-                    .nth(1)
-                    .unwrap_or("")
-                    .split('@')
-                    .next()
-                    .unwrap_or("")
-                    .to_string();
-                if !name.is_empty() {
-                    plt_map.insert(name, format!("0x{addr}"));
-                }
-            }
-        }
-    }
-
-    // Build GOT address map from objdump -R
-    // Lines look like: 0000000000404018 R_X86_64_JUMP_SLOT  puts@GLIBC_2.2.5
-    let mut got_map: HashMap<String, String> = HashMap::new();
-    for line in got_output.lines() {
-        let parts: Vec<&str> = line.split_whitespace().collect();
-        if parts.len() >= 3 && parts[0].chars().all(|c| c.is_ascii_hexdigit()) {
-            let addr = format!("0x{}", parts[0]);
-            let sym_name = parts
-                .last()
-                .unwrap_or(&"")
-                .split('@')
-                .next()
-                .unwrap_or("")
-                .to_string();
-            if !sym_name.is_empty() {
-                got_map.insert(sym_name, addr);
-            }
-        }
-    }
-
-    // Parse readelf --dyn-syms
-    // Lines look like:
-    //   Num:    Value          Size Type    Bind   Vis      Ndx Name
-    //     1: 0000000000000000     0 FUNC    GLOBAL DEFAULT  UND puts@GLIBC_2.2.5 (2)
-    //     5: 0000000000401180    42 FUNC    GLOBAL DEFAULT   14 main
-    for line in dynsym_output.lines() {
-        let trimmed = line.trim();
-        if trimmed.is_empty()
-            || trimmed.starts_with("Symbol")
-            || trimmed.starts_with("Num:")
-        {
-            continue;
-        }
-
-        let parts: Vec<&str> = trimmed.split_whitespace().collect();
-        if parts.len() < 8 {
-            continue;
-        }
-
-        // parts[0] = "1:", parts[1] = value, parts[2] = size, parts[3] = type,
-        // parts[4] = bind, parts[5] = vis, parts[6] = ndx, parts[7..] = name
-        let value = parts[1];
-        let sym_type = parts[3];
-        let ndx = parts[6];
-        let full_name = parts[7..].join(" ");
-        let name = full_name.split('@').next().unwrap_or("").to_string();
-
-        if name.is_empty() {
-            continue;
-        }
-
-        if ndx == "UND" {
-            // Imported symbol
-            let library = full_name
-                .split('@')
-                .nth(1)
-                .unwrap_or("")
-                .split(|c: char| c == ' ' || c == '(')
-                .next()
-                .unwrap_or("")
-                .to_string();
-
-            imports.push(ImportedSymbol {
-                name: name.clone(),
-                library,
-                plt_address: plt_map.get(&name).cloned().unwrap_or_default(),
-                got_address: got_map.get(&name).cloned().unwrap_or_default(),
-            });
-        } else if sym_type == "FUNC" || sym_type == "OBJECT" {
-            // Exported symbol
-            exports.push(ExportedSymbol {
-                name,
-                address: format!("0x{value}"),
-                sym_type: sym_type.to_string(),
-            });
-        }
-    }
-
-    Symbols { imports, exports }
-}
-
-fn parse_checksec(output: &str) -> Protections {
-    let lower = output.to_lowercase();
-
-    let pie = lower.contains("pie enabled");
-    let nx = lower.contains("nx enabled");
-    let canary = lower.contains("canary found") && !lower.contains("no canary found");
-    let fortify = lower.contains("fortify") && !lower.contains("no fortify");
-
-    let relro = if lower.contains("full relro") {
-        "full".to_string()
-    } else if lower.contains("partial relro") {
-        "partial".to_string()
-    } else if lower.contains("no relro") {
-        "none".to_string()
-    } else {
-        String::new()
-    };
-
-    Protections {
-        pie,
-        nx,
-        canary,
-        relro,
-        fortify,
-    }
-}
-
-fn parse_stat_output(output: &str) -> FileMetadata {
-    let parts: Vec<&str> = output.trim().split_whitespace().collect();
-    if parts.len() >= 4 {
-        let size_bytes = parts[0].parse::<u64>().unwrap_or(0);
-        let permissions = parts[1].to_string();
-        let owner = parts[2].to_string();
-        let modified_time = parts[3].to_string();
-
-        FileMetadata {
-            size_bytes,
-            permissions,
-            owner,
-            modified_time,
-        }
-    } else {
-        FileMetadata {
-            size_bytes: 0,
-            permissions: String::new(),
-            owner: String::new(),
-            modified_time: String::new(),
-        }
     }
 }

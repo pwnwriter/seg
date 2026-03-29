@@ -95,6 +95,24 @@ pub fn analyze(binary_path: &Path) -> Report {
         String::new()
     });
 
+    // Run readelf --dyn-syms (dynamic symbols)
+    let readelf_dynsym_output = run_cmd("readelf", &["--dyn-syms", &path_str]).unwrap_or_else(|e| {
+        errors.push(e);
+        String::new()
+    });
+
+    // Run objdump -d for PLT (just the .plt section)
+    let objdump_plt_output = run_cmd("objdump", &["-d", "-j", ".plt", &path_str]).unwrap_or_else(|e| {
+        errors.push(e);
+        String::new()
+    });
+
+    // Run objdump -R for GOT relocations
+    let objdump_r_output = run_cmd("objdump", &["-R", &path_str]).unwrap_or_else(|e| {
+        errors.push(e);
+        String::new()
+    });
+
     let mut binary_info = parse_file_output(&file_output, &path_str, &name, &sha256);
     let metadata = parse_stat_output(&stat_output);
     let elf_headers = parse_readelf_headers(&readelf_h_output, &mut binary_info);
@@ -104,6 +122,7 @@ pub fn analyze(binary_path: &Path) -> Report {
     let libraries = parse_ldd(&ldd_output);
     let dynamic = parse_dynamic_entries(&readelf_d_output);
     let protections = parse_checksec(&checksec_output);
+    let symbols = parse_symbols(&readelf_dynsym_output, &objdump_plt_output, &objdump_r_output);
 
     let generated_at = chrono::Utc::now().to_rfc3339();
 
@@ -125,10 +144,7 @@ pub fn analyze(binary_path: &Path) -> Report {
         },
         libraries,
         dynamic,
-        symbols: Symbols {
-            imports: vec![],
-            exports: vec![],
-        },
+        symbols,
         strings: strings_info,
         disassembly: Disassembly {
             entry: String::new(),
@@ -176,7 +192,7 @@ pub fn analyze(binary_path: &Path) -> Report {
             ldd: ldd_output,
             checksec: checksec_output,
             readelf: readelf_output,
-            objdump: String::new(),
+            objdump: objdump_plt_output.clone(),
             strings: strings_output,
         },
         errors,
@@ -584,6 +600,117 @@ fn parse_dynamic_entries(output: &str) -> DynamicInfo {
     }
 
     DynamicInfo { needed, entries }
+}
+
+fn parse_symbols(
+    dynsym_output: &str,
+    plt_output: &str,
+    got_output: &str,
+) -> Symbols {
+    let mut imports = Vec::new();
+    let mut exports = Vec::new();
+
+    // Build PLT address map from objdump -d -j .plt
+    // Lines look like: 0000000000401030 <puts@plt>:
+    let mut plt_map: HashMap<String, String> = HashMap::new();
+    for line in plt_output.lines() {
+        if line.contains("@plt>:") {
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            if let Some(addr) = parts.first() {
+                let name = line
+                    .split('<')
+                    .nth(1)
+                    .unwrap_or("")
+                    .split('@')
+                    .next()
+                    .unwrap_or("")
+                    .to_string();
+                if !name.is_empty() {
+                    plt_map.insert(name, format!("0x{addr}"));
+                }
+            }
+        }
+    }
+
+    // Build GOT address map from objdump -R
+    // Lines look like: 0000000000404018 R_X86_64_JUMP_SLOT  puts@GLIBC_2.2.5
+    let mut got_map: HashMap<String, String> = HashMap::new();
+    for line in got_output.lines() {
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        if parts.len() >= 3 && parts[0].chars().all(|c| c.is_ascii_hexdigit()) {
+            let addr = format!("0x{}", parts[0]);
+            let sym_name = parts
+                .last()
+                .unwrap_or(&"")
+                .split('@')
+                .next()
+                .unwrap_or("")
+                .to_string();
+            if !sym_name.is_empty() {
+                got_map.insert(sym_name, addr);
+            }
+        }
+    }
+
+    // Parse readelf --dyn-syms
+    // Lines look like:
+    //   Num:    Value          Size Type    Bind   Vis      Ndx Name
+    //     1: 0000000000000000     0 FUNC    GLOBAL DEFAULT  UND puts@GLIBC_2.2.5 (2)
+    //     5: 0000000000401180    42 FUNC    GLOBAL DEFAULT   14 main
+    for line in dynsym_output.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty()
+            || trimmed.starts_with("Symbol")
+            || trimmed.starts_with("Num:")
+        {
+            continue;
+        }
+
+        let parts: Vec<&str> = trimmed.split_whitespace().collect();
+        if parts.len() < 8 {
+            continue;
+        }
+
+        // parts[0] = "1:", parts[1] = value, parts[2] = size, parts[3] = type,
+        // parts[4] = bind, parts[5] = vis, parts[6] = ndx, parts[7..] = name
+        let value = parts[1];
+        let sym_type = parts[3];
+        let ndx = parts[6];
+        let full_name = parts[7..].join(" ");
+        let name = full_name.split('@').next().unwrap_or("").to_string();
+
+        if name.is_empty() {
+            continue;
+        }
+
+        if ndx == "UND" {
+            // Imported symbol
+            let library = full_name
+                .split('@')
+                .nth(1)
+                .unwrap_or("")
+                .split(|c: char| c == ' ' || c == '(')
+                .next()
+                .unwrap_or("")
+                .to_string();
+
+            imports.push(ImportedSymbol {
+                name: name.clone(),
+                library,
+                plt_address: plt_map.get(&name).cloned().unwrap_or_default(),
+                got_address: got_map.get(&name).cloned().unwrap_or_default(),
+            });
+        } else if sym_type == "FUNC" || sym_type == "OBJECT" {
+            // Exported symbol
+            exports.push(ExportedSymbol {
+                name,
+                address: format!("0x{value}"),
+                sym_type: sym_type.to_string(),
+            });
+        }
+    }
+
+    Symbols { imports, exports }
 }
 
 fn parse_checksec(output: &str) -> Protections {

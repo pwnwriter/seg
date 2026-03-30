@@ -2,6 +2,7 @@ mod binary;
 mod checksec;
 mod disassembly;
 mod elf;
+mod hints;
 mod libraries;
 mod strings;
 mod symbols;
@@ -142,6 +143,7 @@ pub fn analyze(binary_path: &Path) -> Report {
     let syms = symbols::parse_symbols(&readelf_dynsym_output, &objdump_plt_output, &objdump_r_output);
     let disasm = disassembly::parse_disassembly(&objdump_d_output, &binary_info.entry_point);
     let dangerous_functions = disassembly::detect_dangerous_functions(&syms, &objdump_d_output);
+    let exploitation_hints = hints::derive_hints(&protections, &dangerous_functions, &syms);
 
     let generated_at = chrono::Utc::now().to_rfc3339();
 
@@ -167,15 +169,7 @@ pub fn analyze(binary_path: &Path) -> Report {
         strings: strings_info,
         disassembly: disasm,
         dangerous_functions,
-        exploitation_hints: ExploitationHints {
-            buffer_overflow_likely: false,
-            format_string_likely: false,
-            ret2libc_possible: false,
-            got_overwrite_possible: false,
-            shellcode_possible: false,
-            rop_likely: false,
-            reasoning: vec![],
-        },
+        exploitation_hints,
         libc: LibcInfo {
             local: LocalLibc {
                 source: String::new(),

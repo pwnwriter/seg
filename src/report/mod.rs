@@ -1,3 +1,5 @@
+pub mod markdown;
+
 use serde::Serialize;
 
 #[derive(Debug, Serialize)]

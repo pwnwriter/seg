@@ -54,15 +54,11 @@ fn main() {
             }
 
             if let Some(ref dest) = markdown {
-                // TODO: markdown renderer
-                let placeholder = format!(
-                    "# seg Report: {}\n\n(markdown not implemented yet)\n",
-                    report.binary.name
-                );
+                let md = report::markdown::render(&report);
                 if dest == "-" {
-                    println!("{placeholder}");
+                    println!("{md}");
                 } else {
-                    fs::write(dest, &placeholder).unwrap_or_else(|e| {
+                    fs::write(dest, &md).unwrap_or_else(|e| {
                         eprintln!("error: failed to write {dest}: {e}");
                         process::exit(1);
                     });

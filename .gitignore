@@ -1,7 +1,7 @@
 .direnv
-
-
 # Added by cargo
-
 /target
+
+# Compiled test binaries
+tests/bins/
 

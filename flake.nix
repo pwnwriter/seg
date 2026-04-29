@@ -35,6 +35,9 @@
 
           shellHook = ''
             echo "DevShell🚀: initiated"
+
+            # add cargo build output to PATH
+            export PATH="$PWD/target/debug:$PATH"
           '';
         };
       });

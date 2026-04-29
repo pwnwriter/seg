@@ -2,6 +2,16 @@
 name = "seg"
 version = "0.1.0"
 edition = "2024"
+authors = ["Nabeen Tiwaree <hi@pwnwriter.me>"]
+description = "seg is a cli tool for analyzing binaries and generating structured reports to help ai agents and security researchers understand and exploit them."
+license = "MIT"
+repository = "https://github.com/pwnwriter/seg"
+homepage = "https://github.com/pwnwriter/seg"
+documentation = "https://docs.rs/seg"
+readme = "README.md"
+
+keywords = ["binary", "ctf", "exploitation", "reverse-engineering", "security"]
+categories = ["command-line-utilities", "development-tools", "encoding"]
 
 [dependencies]
 chrono = { version = "0.4.44", features = ["serde"] }
@@ -10,3 +20,10 @@ colored = "3.1.1"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
 ureq = { version = "3.3.0", features = ["json"] }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

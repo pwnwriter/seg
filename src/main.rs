@@ -37,11 +37,7 @@ fn main() {
             let report = engine::analyze(&binary_path);
 
             if let Some(ref dest) = json {
-                let json_str = serde_json::to_string_pretty(&report).unwrap_or_else(|e| {
-                    eprintln!("error: failed to serialize report: {e}");
-                    process::exit(1);
-                });
-
+                let json_str = report::json::render(&report);
                 if dest == "-" {
                     println!("{json_str}");
                 } else {

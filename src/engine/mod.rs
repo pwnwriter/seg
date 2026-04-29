@@ -5,6 +5,7 @@ mod elf;
 mod hints;
 mod libc;
 mod libraries;
+mod strategy;
 mod strings;
 mod symbols;
 
@@ -145,6 +146,7 @@ pub fn analyze(binary_path: &Path) -> Report {
     let dangerous_functions = disassembly::detect_dangerous_functions(&syms, &objdump_d_output);
     let exploitation_hints = hints::derive_hints(&protections, &dangerous_functions, &syms);
     let libc_info = libc::resolve_libc(&libraries, &syms);
+    let strat = strategy::derive_strategy(&protections, &exploitation_hints, &dangerous_functions, &syms);
 
     let generated_at = chrono::Utc::now().to_rfc3339();
 
@@ -172,12 +174,7 @@ pub fn analyze(binary_path: &Path) -> Report {
         dangerous_functions,
         exploitation_hints,
         libc: libc_info,
-        strategy: Strategy {
-            most_likely: String::new(),
-            reason: String::new(),
-            steps: vec![],
-            leak_targets: vec![],
-        },
+        strategy: strat,
         ai_summary: AiSummary {
             one_line: String::new(),
             important_facts: vec![],

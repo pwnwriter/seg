@@ -4,4 +4,5 @@
 
 # Compiled test binaries
 tests/bins/
-
+report.md
+report.json

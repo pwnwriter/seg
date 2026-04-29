@@ -23,6 +23,7 @@
             with pkgs;
             [
               bintools
+              pwntools
             ]
             ++ lib.optionals stdenv.isLinux [
               checksec

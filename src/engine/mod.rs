@@ -3,11 +3,11 @@ mod checksec;
 mod disassembly;
 mod elf;
 mod hints;
+mod libc;
 mod libraries;
 mod strings;
 mod symbols;
 
-use std::collections::HashMap;
 use std::path::Path;
 use std::process::Command;
 
@@ -144,6 +144,7 @@ pub fn analyze(binary_path: &Path) -> Report {
     let disasm = disassembly::parse_disassembly(&objdump_d_output, &binary_info.entry_point);
     let dangerous_functions = disassembly::detect_dangerous_functions(&syms, &objdump_d_output);
     let exploitation_hints = hints::derive_hints(&protections, &dangerous_functions, &syms);
+    let libc_info = libc::resolve_libc(&libraries, &syms);
 
     let generated_at = chrono::Utc::now().to_rfc3339();
 
@@ -170,20 +171,7 @@ pub fn analyze(binary_path: &Path) -> Report {
         disassembly: disasm,
         dangerous_functions,
         exploitation_hints,
-        libc: LibcInfo {
-            local: LocalLibc {
-                source: String::new(),
-                path: String::new(),
-                runtime_base: String::new(),
-            },
-            libc_rip: LibcRip {
-                enabled: false,
-                endpoint: "https://libc.rip/api/find".to_string(),
-                query: serde_json::Value::Null,
-                matches: vec![],
-                useful_symbols: HashMap::new(),
-            },
-        },
+        libc: libc_info,
         strategy: Strategy {
             most_likely: String::new(),
             reason: String::new(),

@@ -13,7 +13,7 @@ pub struct Cli {
 #[derive(Subcommand)]
 pub enum Commands {
     /// Analyze a binary and generate a report
-    #[command(visible_aliases = ["ana", "analy"])]
+    #[command(visible_aliases = ["ana", "anal", "analy", "analyz"])]
     Analyze {
         /// Path to the binary to analyze
         binary: PathBuf,

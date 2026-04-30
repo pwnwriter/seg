@@ -4,6 +4,7 @@ pub mod report;
 
 use clap::Parser;
 use cli::{Cli, Commands};
+use colored::Colorize;
 use std::fs;
 use std::process;
 
@@ -17,19 +18,19 @@ fn main() {
             json,
         } => {
             if !binary.exists() {
-                eprintln!("error: binary not found: {}", binary.display());
+                eprintln!("  {} binary not found: {}", "error:".bold().red(), binary.display());
                 process::exit(1);
             }
 
             if markdown.is_none() && json.is_none() {
-                eprintln!("error: specify --markdown or --json (or both)");
+                eprintln!("  {} specify --markdown or --json (or both)", "error:".bold().red());
                 process::exit(1);
             }
 
             let binary_path = match binary.canonicalize() {
                 Ok(p) => p,
                 Err(e) => {
-                    eprintln!("error: cannot resolve path {}: {e}", binary.display());
+                    eprintln!("  {} cannot resolve path {}: {e}", "error:".bold().red(), binary.display());
                     process::exit(1);
                 }
             };
@@ -42,10 +43,10 @@ fn main() {
                     println!("{json_str}");
                 } else {
                     fs::write(dest, &json_str).unwrap_or_else(|e| {
-                        eprintln!("error: failed to write {dest}: {e}");
+                        eprintln!("  {} failed to write {dest}: {e}", "error:".bold().red());
                         process::exit(1);
                     });
-                    eprintln!("wrote {dest}");
+                    eprintln!("  {} wrote {}", "[seg]".bold().cyan(), dest.bold());
                 }
             }
 
@@ -55,10 +56,10 @@ fn main() {
                     println!("{md}");
                 } else {
                     fs::write(dest, &md).unwrap_or_else(|e| {
-                        eprintln!("error: failed to write {dest}: {e}");
+                        eprintln!("  {} failed to write {dest}: {e}", "error:".bold().red());
                         process::exit(1);
                     });
-                    eprintln!("wrote {dest}");
+                    eprintln!("  {} wrote {}", "[seg]".bold().cyan(), dest.bold());
                 }
             }
         }

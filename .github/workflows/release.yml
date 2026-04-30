@@ -95,16 +95,48 @@ jobs:
           path: artifacts
           merge-multiple: true
 
-      - name: Generate checksums
+      - name: Generate checksums and release body
         run: |
           cd artifacts
           sha256sum seg-* > sha256sums.txt
           cat sha256sums.txt
 
+          TAG="${GITHUB_REF#refs/tags/}"
+          REPO="${GITHUB_REPOSITORY}"
+
+          {
+            echo "## Downloads"
+            echo ""
+            echo "| Platform | Architecture | Download |"
+            echo "|----------|-------------|----------|"
+            for file in seg-*.tar.gz seg-*.zip; do
+              [ -f "$file" ] || continue
+              name="${file#seg-}"
+              case "$name" in
+                x86_64-unknown-linux-gnu*)    platform="Linux";   arch="x86_64 (glibc)" ;;
+                x86_64-unknown-linux-musl*)   platform="Linux";   arch="x86_64 (musl)" ;;
+                aarch64-unknown-linux-gnu*)   platform="Linux";   arch="aarch64 (glibc)" ;;
+                aarch64-unknown-linux-musl*)  platform="Linux";   arch="aarch64 (musl)" ;;
+                armv7-unknown-linux-gnueabi*) platform="Linux";   arch="armv7" ;;
+                x86_64-apple-darwin*)         platform="macOS";   arch="x86_64 (Intel)" ;;
+                aarch64-apple-darwin*)        platform="macOS";   arch="aarch64 (Apple Silicon)" ;;
+                x86_64-pc-windows-msvc*)      platform="Windows"; arch="x86_64" ;;
+                aarch64-pc-windows-msvc*)     platform="Windows"; arch="aarch64" ;;
+                *) platform="Other"; arch="$name" ;;
+              esac
+              sha=$(grep "$file" sha256sums.txt | cut -d' ' -f1)
+              echo "| $platform | $arch | [\`$file\`](https://github.com/$REPO/releases/download/$TAG/$file) <br/> \`sha256:${sha}\` |"
+            done
+            echo ""
+            echo "---"
+            echo ""
+          } > ../release_body.md
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
+          body_path: release_body.md
           files: |
             artifacts/seg-*.tar.gz
             artifacts/seg-*.zip

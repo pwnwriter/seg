@@ -23,7 +23,11 @@ fn print_phase(name: &str, is_last: bool) {
 
 fn print_step(label: &str, is_last_step: bool, is_last_phase: bool) {
     let trunk = if is_last_phase { " " } else { "│" };
-    let connector = if is_last_step { "└──" } else { "├──" };
+    let connector = if is_last_step {
+        "└──"
+    } else {
+        "├──"
+    };
     eprintln!(
         "  {}   {} {}",
         trunk.bright_black(),
@@ -173,12 +177,21 @@ pub fn analyze(binary_path: &Path) -> Report {
     let libraries = libraries::parse_ldd(&ldd_output);
     let dynamic = libraries::parse_dynamic_entries(&readelf_d_output);
     let protections = checksec::parse_checksec(&checksec_output);
-    let syms = symbols::parse_symbols(&readelf_dynsym_output, &objdump_plt_output, &objdump_r_output);
+    let syms = symbols::parse_symbols(
+        &readelf_dynsym_output,
+        &objdump_plt_output,
+        &objdump_r_output,
+    );
     let disasm = disassembly::parse_disassembly(&objdump_d_output, &binary_info.entry_point);
     let dangerous_functions = disassembly::detect_dangerous_functions(&syms, &objdump_d_output);
     let exploitation_hints = hints::derive_hints(&protections, &dangerous_functions, &syms);
     let libc_info = libc::resolve_libc(&libraries, &syms);
-    let strat = strategy::derive_strategy(&protections, &exploitation_hints, &dangerous_functions, &syms);
+    let strat = strategy::derive_strategy(
+        &protections,
+        &exploitation_hints,
+        &dangerous_functions,
+        &syms,
+    );
 
     print_step("building report", true, true);
 

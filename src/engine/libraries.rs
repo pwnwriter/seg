@@ -66,10 +66,10 @@ pub fn parse_dynamic_entries(output: &str) -> DynamicInfo {
             let tag = trimmed[open + 1..close].trim().to_string();
             let value = trimmed[close + 1..].trim().to_string();
 
-            if tag == "NEEDED" {
-                if let (Some(lb), Some(rb)) = (value.find('['), value.find(']')) {
-                    needed.push(value[lb + 1..rb].to_string());
-                }
+            if tag == "NEEDED"
+                && let (Some(lb), Some(rb)) = (value.find('['), value.find(']'))
+            {
+                needed.push(value[lb + 1..rb].to_string());
             }
 
             entries.push(DynamicEntry { tag, value });

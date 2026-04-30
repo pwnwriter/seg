@@ -20,11 +20,13 @@ pub fn derive_hints(
         || has_dangerous("recv");
 
     if buffer_overflow_likely {
-        let funcs: Vec<&str> = ["gets", "strcpy", "strcat", "sprintf", "scanf", "read", "recv"]
-            .iter()
-            .filter(|f| has_dangerous(f))
-            .copied()
-            .collect();
+        let funcs: Vec<&str> = [
+            "gets", "strcpy", "strcat", "sprintf", "scanf", "read", "recv",
+        ]
+        .iter()
+        .filter(|f| has_dangerous(f))
+        .copied()
+        .collect();
         reasoning.push(format!(
             "Dangerous functions detected: {}. Buffer overflow is likely.",
             funcs.join(", ")
@@ -64,18 +66,18 @@ pub fn derive_hints(
     // RELRO / GOT overwrite
     let got_overwrite_possible = protections.relro != "full";
     if protections.relro == "full" {
-        reasoning.push("Full RELRO means GOT is read-only. GOT overwrite is not possible.".to_string());
+        reasoning
+            .push("Full RELRO means GOT is read-only. GOT overwrite is not possible.".to_string());
     } else if protections.relro == "partial" {
-        reasoning.push(
-            "Partial RELRO means GOT overwrite may be possible.".to_string(),
-        );
+        reasoning.push("Partial RELRO means GOT overwrite may be possible.".to_string());
     } else if protections.relro == "none" || protections.relro.is_empty() {
         reasoning.push("No RELRO detected. GOT overwrite is likely possible.".to_string());
     }
 
     // PIE
     if !protections.pie {
-        reasoning.push("PIE is disabled, so binary addresses are stable and predictable.".to_string());
+        reasoning
+            .push("PIE is disabled, so binary addresses are stable and predictable.".to_string());
     } else {
         reasoning.push(
             "PIE is enabled. Binary base address is randomized; a leak is needed.".to_string(),
@@ -83,10 +85,8 @@ pub fn derive_hints(
     }
 
     // Ret2libc
-    let has_libc_imports = has_import("puts")
-        || has_import("printf")
-        || has_import("write")
-        || has_import("read");
+    let has_libc_imports =
+        has_import("puts") || has_import("printf") || has_import("write") || has_import("read");
     let ret2libc_possible = protections.nx && has_libc_imports && !protections.canary;
     if ret2libc_possible {
         let leak_funcs: Vec<&str> = ["puts", "printf", "write"]

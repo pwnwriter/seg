@@ -1,4 +1,4 @@
-use crate::report::{DangerousFunction, Disassembly, Symbols, SuspiciousFunction};
+use crate::report::{DangerousFunction, Disassembly, SuspiciousFunction, Symbols};
 
 fn extract_function_block(disasm: &str, func_name: &str) -> String {
     let mut result = String::new();

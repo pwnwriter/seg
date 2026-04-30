@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::report::{Libraries, LibcInfo, LibcMatch, LibcRip, LocalLibc, Symbols};
+use crate::report::{LibcInfo, LibcMatch, LibcRip, Libraries, LocalLibc, Symbols};
 
 const LIBC_RIP_ENDPOINT: &str = "https://libc.rip/api/find";
 
@@ -112,12 +112,12 @@ fn query_libc_rip(symbols: &Symbols) -> LibcRip {
                 .to_string();
 
             // Extract useful symbols from the first match
-            if useful_symbols.is_empty() {
-                if let Some(syms) = entry.get("symbols").and_then(|v| v.as_object()) {
-                    for name in USEFUL_SYMBOLS {
-                        if let Some(offset) = syms.get(*name).and_then(|v| v.as_str()) {
-                            useful_symbols.insert(name.to_string(), offset.to_string());
-                        }
+            if useful_symbols.is_empty()
+                && let Some(syms) = entry.get("symbols").and_then(|v| v.as_object())
+            {
+                for name in USEFUL_SYMBOLS {
+                    if let Some(offset) = syms.get(*name).and_then(|v| v.as_str()) {
+                        useful_symbols.insert(name.to_string(), offset.to_string());
                     }
                 }
             }

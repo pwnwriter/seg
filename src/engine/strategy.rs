@@ -41,9 +41,7 @@ pub fn derive_strategy(
         }
 
         if hints.ret2libc_possible {
-            let mut steps = vec![
-                "Find overflow offset using cyclic pattern.".to_string(),
-            ];
+            let mut steps = vec!["Find overflow offset using cyclic pattern.".to_string()];
 
             if !leak_targets.is_empty() {
                 steps.push(format!(
@@ -57,7 +55,8 @@ pub fn derive_strategy(
 
             return Strategy {
                 most_likely: "ret2libc".to_string(),
-                reason: "NX is enabled, no canary is present, and libc functions are imported.".to_string(),
+                reason: "NX is enabled, no canary is present, and libc functions are imported."
+                    .to_string(),
                 steps,
                 leak_targets,
             };
@@ -81,7 +80,10 @@ pub fn derive_strategy(
         let win_funcs: Vec<&str> = ["win", "shell", "backdoor", "flag"]
             .iter()
             .filter(|f| {
-                symbols.exports.iter().any(|e| e.name.to_lowercase().contains(*f))
+                symbols
+                    .exports
+                    .iter()
+                    .any(|e| e.name.to_lowercase().contains(*f))
             })
             .copied()
             .collect();
@@ -101,7 +103,10 @@ pub fn derive_strategy(
                 ),
                 steps: vec![
                     "Find overflow offset using cyclic pattern.".to_string(),
-                    format!("Overwrite return address with {} ({}).", target.name, target.address),
+                    format!(
+                        "Overwrite return address with {} ({}).",
+                        target.name, target.address
+                    ),
                     "Spawn shell.".to_string(),
                 ],
                 leak_targets,

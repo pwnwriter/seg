@@ -78,7 +78,7 @@ pub fn parse_file_output(output: &str, path: &str, name: &str, sha256: &str) -> 
 }
 
 pub fn parse_stat_output(output: &str) -> FileMetadata {
-    let parts: Vec<&str> = output.trim().split_whitespace().collect();
+    let parts: Vec<&str> = output.split_whitespace().collect();
     if parts.len() >= 4 {
         let size_bytes = parts[0].parse::<u64>().unwrap_or(0);
         let permissions = parts[1].to_string();

@@ -95,7 +95,7 @@ pub fn parse_readelf_sections(output: &str) -> Vec<Section> {
 
             if parts.len() >= 4 {
                 let name = parts[0].to_string();
-                if name == "" || parts[1] == "NULL" {
+                if name.is_empty() || parts[1] == "NULL" {
                     i += 1;
                     continue;
                 }
@@ -106,7 +106,7 @@ pub fn parse_readelf_sections(output: &str) -> Vec<Section> {
                 let mut size = String::new();
                 let mut flags = String::new();
                 if i + 1 < lines.len() {
-                    let next_parts: Vec<&str> = lines[i + 1].trim().split_whitespace().collect();
+                    let next_parts: Vec<&str> = lines[i + 1].split_whitespace().collect();
                     if !next_parts.is_empty() {
                         size = format!("0x{}", next_parts[0]);
                     }

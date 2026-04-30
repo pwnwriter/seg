@@ -24,9 +24,28 @@ pub fn render(report: &Report) -> String {
     writeln!(md, "|---|---|").unwrap();
     writeln!(md, "| PIE | {} |", bool_status(report.protections.pie)).unwrap();
     writeln!(md, "| NX | {} |", bool_status(report.protections.nx)).unwrap();
-    writeln!(md, "| Stack Canary | {} |", bool_status(report.protections.canary)).unwrap();
-    writeln!(md, "| RELRO | {} |", if report.protections.relro.is_empty() { "unknown" } else { &report.protections.relro }).unwrap();
-    writeln!(md, "| Fortify | {} |", bool_status(report.protections.fortify)).unwrap();
+    writeln!(
+        md,
+        "| Stack Canary | {} |",
+        bool_status(report.protections.canary)
+    )
+    .unwrap();
+    writeln!(
+        md,
+        "| RELRO | {} |",
+        if report.protections.relro.is_empty() {
+            "unknown"
+        } else {
+            &report.protections.relro
+        }
+    )
+    .unwrap();
+    writeln!(
+        md,
+        "| Fortify | {} |",
+        bool_status(report.protections.fortify)
+    )
+    .unwrap();
 
     // 3. File Metadata
     writeln!(md, "\n## 3. File Metadata\n").unwrap();
@@ -48,10 +67,19 @@ pub fn render(report: &Report) -> String {
     // 5. Program Segments
     if !report.elf.segments.is_empty() {
         writeln!(md, "\n## 5. Program Segments\n").unwrap();
-        writeln!(md, "| Type | Offset | Virtual Address | Size | Permissions |").unwrap();
+        writeln!(
+            md,
+            "| Type | Offset | Virtual Address | Size | Permissions |"
+        )
+        .unwrap();
         writeln!(md, "|---|---|---|---|---|").unwrap();
         for seg in &report.elf.segments {
-            writeln!(md, "| {} | {} | {} | {} | {} |", seg.seg_type, seg.offset, seg.virtual_address, seg.size, seg.permissions).unwrap();
+            writeln!(
+                md,
+                "| {} | {} | {} | {} | {} |",
+                seg.seg_type, seg.offset, seg.virtual_address, seg.size, seg.permissions
+            )
+            .unwrap();
         }
     }
 
@@ -61,7 +89,12 @@ pub fn render(report: &Report) -> String {
         writeln!(md, "| Name | Address | Offset | Size | Flags |").unwrap();
         writeln!(md, "|---|---|---|---|---|").unwrap();
         for sec in &report.elf.sections {
-            writeln!(md, "| {} | {} | {} | {} | {} |", sec.name, sec.address, sec.offset, sec.size, sec.flags).unwrap();
+            writeln!(
+                md,
+                "| {} | {} | {} | {} | {} |",
+                sec.name, sec.address, sec.offset, sec.size, sec.flags
+            )
+            .unwrap();
         }
     }
 
@@ -92,7 +125,12 @@ pub fn render(report: &Report) -> String {
         writeln!(md, "| Function | Library | PLT Address | GOT Address |").unwrap();
         writeln!(md, "|---|---|---|---|").unwrap();
         for imp in &report.symbols.imports {
-            writeln!(md, "| {} | {} | {} | {} |", imp.name, imp.library, imp.plt_address, imp.got_address).unwrap();
+            writeln!(
+                md,
+                "| {} | {} | {} | {} |",
+                imp.name, imp.library, imp.plt_address, imp.got_address
+            )
+            .unwrap();
         }
     }
 
@@ -112,7 +150,11 @@ pub fn render(report: &Report) -> String {
     render_string_section(&mut md, "Format Strings", &report.strings.format_strings);
     render_string_section(&mut md, "File Paths", &report.strings.paths);
     render_string_section(&mut md, "URLs / Network Indicators", &report.strings.urls);
-    render_string_section(&mut md, "Other Suspicious Strings", &report.strings.suspicious);
+    render_string_section(
+        &mut md,
+        "Other Suspicious Strings",
+        &report.strings.suspicious,
+    );
 
     // 12. Disassembly Highlights
     writeln!(md, "\n## 12. Disassembly Highlights\n").unwrap();
@@ -141,12 +183,42 @@ pub fn render(report: &Report) -> String {
 
     // 14. Exploitation Hints
     writeln!(md, "\n## 14. Exploitation Hints\n").unwrap();
-    writeln!(md, "- Buffer Overflow Likely: `{}`", report.exploitation_hints.buffer_overflow_likely).unwrap();
-    writeln!(md, "- Format String Likely: `{}`", report.exploitation_hints.format_string_likely).unwrap();
-    writeln!(md, "- Ret2libc Possible: `{}`", report.exploitation_hints.ret2libc_possible).unwrap();
-    writeln!(md, "- GOT Overwrite Possible: `{}`", report.exploitation_hints.got_overwrite_possible).unwrap();
-    writeln!(md, "- Shellcode Possible: `{}`", report.exploitation_hints.shellcode_possible).unwrap();
-    writeln!(md, "- ROP Likely Needed: `{}`", report.exploitation_hints.rop_likely).unwrap();
+    writeln!(
+        md,
+        "- Buffer Overflow Likely: `{}`",
+        report.exploitation_hints.buffer_overflow_likely
+    )
+    .unwrap();
+    writeln!(
+        md,
+        "- Format String Likely: `{}`",
+        report.exploitation_hints.format_string_likely
+    )
+    .unwrap();
+    writeln!(
+        md,
+        "- Ret2libc Possible: `{}`",
+        report.exploitation_hints.ret2libc_possible
+    )
+    .unwrap();
+    writeln!(
+        md,
+        "- GOT Overwrite Possible: `{}`",
+        report.exploitation_hints.got_overwrite_possible
+    )
+    .unwrap();
+    writeln!(
+        md,
+        "- Shellcode Possible: `{}`",
+        report.exploitation_hints.shellcode_possible
+    )
+    .unwrap();
+    writeln!(
+        md,
+        "- ROP Likely Needed: `{}`",
+        report.exploitation_hints.rop_likely
+    )
+    .unwrap();
 
     if !report.exploitation_hints.reasoning.is_empty() {
         writeln!(md, "\n### Reasoning\n").unwrap();
@@ -199,12 +271,25 @@ pub fn render(report: &Report) -> String {
     // 17. AI Agent Summary
     writeln!(md, "\n## 17. AI Agent Summary\n").unwrap();
     writeln!(md, "```text").unwrap();
-    writeln!(md, "Binary is {} {}-bit.", report.binary.architecture, report.binary.bits).unwrap();
-    writeln!(md, "Protections: PIE={}, NX={}, Canary={}, RELRO={}.",
-        report.protections.pie, report.protections.nx,
+    writeln!(
+        md,
+        "Binary is {} {}-bit.",
+        report.binary.architecture, report.binary.bits
+    )
+    .unwrap();
+    writeln!(
+        md,
+        "Protections: PIE={}, NX={}, Canary={}, RELRO={}.",
+        report.protections.pie,
+        report.protections.nx,
         report.protections.canary,
-        if report.protections.relro.is_empty() { "unknown" } else { &report.protections.relro }
-    ).unwrap();
+        if report.protections.relro.is_empty() {
+            "unknown"
+        } else {
+            &report.protections.relro
+        }
+    )
+    .unwrap();
     if !report.exploitation_hints.reasoning.is_empty() {
         writeln!(md, "Key findings:").unwrap();
         for reason in &report.exploitation_hints.reasoning {
@@ -221,7 +306,11 @@ pub fn render(report: &Report) -> String {
     render_raw_output(&mut md, "checksec", &report.raw_outputs.checksec);
     render_raw_output(&mut md, "readelf", &report.raw_outputs.readelf);
     render_raw_output(&mut md, "objdump", &report.raw_outputs.objdump);
-    render_raw_output(&mut md, "strings (excerpt)", &truncate_strings(&report.raw_outputs.strings));
+    render_raw_output(
+        &mut md,
+        "strings (excerpt)",
+        &truncate_strings(&report.raw_outputs.strings),
+    );
 
     md
 }

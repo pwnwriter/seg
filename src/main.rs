@@ -18,19 +18,30 @@ fn main() {
             json,
         } => {
             if !binary.exists() {
-                eprintln!("  {} binary not found: {}", "error:".bold().red(), binary.display());
+                eprintln!(
+                    "  {} binary not found: {}",
+                    "error:".bold().red(),
+                    binary.display()
+                );
                 process::exit(1);
             }
 
             if markdown.is_none() && json.is_none() {
-                eprintln!("  {} specify --markdown or --json (or both)", "error:".bold().red());
+                eprintln!(
+                    "  {} specify --markdown or --json (or both)",
+                    "error:".bold().red()
+                );
                 process::exit(1);
             }
 
             let binary_path = match binary.canonicalize() {
                 Ok(p) => p,
                 Err(e) => {
-                    eprintln!("  {} cannot resolve path {}: {e}", "error:".bold().red(), binary.display());
+                    eprintln!(
+                        "  {} cannot resolve path {}: {e}",
+                        "error:".bold().red(),
+                        binary.display()
+                    );
                     process::exit(1);
                 }
             };

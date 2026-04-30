@@ -73,7 +73,7 @@ pub fn parse_symbols(dynsym_output: &str, plt_output: &str, got_output: &str) ->
                 .split('@')
                 .nth(1)
                 .unwrap_or("")
-                .split(|c: char| c == ' ' || c == '(')
+                .split([' ', '('])
                 .next()
                 .unwrap_or("")
                 .to_string();

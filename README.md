@@ -37,6 +37,16 @@ No more running 7 tools and cross-referencing output manually. One command. Full
 - **Disassembly highlights**: Pulls out `main`, `_start`, and suspiciously named functions (`vuln`, `win`, `backdoor`, `shell`, etc.).
 - **String categorization**: Separates shell commands, format strings, file paths, URLs, and suspicious strings.
 - **Portable**: Written in Rust. Wraps standard Linux tools you already have.
+  
+<a name="Todo"></a>
+## TODO (pls help)
+
+- [ ] `seg invoke`: call exported functions from shared libraries using `dlopen`, `dlsym`, and `libffi`.
+- [ ] `seg invoke --addr`: call functions inside ELF binaries by address using debugger-assisted execution.
+- [ ] `seg hook`: hook libc/imported functions using `LD_PRELOAD`.
+- [ ] `seg hook --frida`: runtime hooks using Frida later.
+
+  References: https://youtu.be/0o8Ex8mXigU?si=Qq60LRr5jUB_nnwR
 
 <a name="installation"></a>
 ## Installation

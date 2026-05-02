@@ -137,17 +137,16 @@ fn main() {
                 }
             };
 
-            if action == "replace" {
-                if let Some(ref lib) = replace_lib {
-                    if !lib.exists() {
-                        eprintln!(
-                            "  {} replacement library not found: {}",
-                            "error:".bold().red(),
-                            lib.display()
-                        );
-                        process::exit(1);
-                    }
-                }
+            if action == "replace"
+                && let Some(ref lib) = replace_lib
+                && !lib.exists()
+            {
+                eprintln!(
+                    "  {} replacement library not found: {}",
+                    "error:".bold().red(),
+                    lib.display()
+                );
+                process::exit(1);
             }
 
             hook::run(

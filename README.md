@@ -17,6 +17,9 @@ No more running 7 tools and cross-referencing output manually. One command. Full
 * [`Features`](#features)
 * [`Installation`](#installation)
 * [`Usage`](#usage)
+  * [`Analyze`](#usage-analyze)
+  * [`Invoke`](#usage-invoke)
+  * [`Hook`](#usage-hook)
 * [`Report Sections`](#report-sections)
 * [`Tools Used`](#tools-used)
 * [`Contribution`](#contribution)
@@ -36,14 +39,16 @@ No more running 7 tools and cross-referencing output manually. One command. Full
 - **Libc resolution**: Extracts local libc from `ldd` and queries [libc.rip](https://libc.rip) for remote libc matching with useful offsets (`system`, `str_bin_sh`, etc.).
 - **Disassembly highlights**: Pulls out `main`, `_start`, and suspiciously named functions (`vuln`, `win`, `backdoor`, `shell`, etc.).
 - **String categorization**: Separates shell commands, format strings, file paths, URLs, and suspicious strings.
+- **Function invocation**: Call exported functions from shared libraries at runtime using `dlopen`/`dlsym`/`libffi`, or call functions by address using `ptrace`.
+- **Function hooking**: Hook libc/imported functions using `LD_PRELOAD` (Linux) or `DYLD_INSERT_LIBRARIES` (macOS) with auto-generated C hooks.
 - **Portable**: Written in Rust. Wraps standard Linux tools you already have.
   
 <a name="Todo"></a>
 ## TODO (pls help)
 
-- [ ] `seg invoke`: call exported functions from shared libraries using `dlopen`, `dlsym`, and `libffi`.
-- [ ] `seg invoke --addr`: call functions inside ELF binaries by address using debugger-assisted execution.
-- [ ] `seg hook`: hook libc/imported functions using `LD_PRELOAD`.
+- [x] `seg invoke`: call exported functions from shared libraries using `dlopen`, `dlsym`, and `libffi`.
+- [x] `seg invoke --addr`: call functions inside ELF binaries by address using debugger-assisted execution.
+- [x] `seg hook`: hook libc/imported functions using `LD_PRELOAD`.
 - [ ] `seg hook --frida`: runtime hooks using Frida later.
 
   References: https://youtu.be/0o8Ex8mXigU?si=Qq60LRr5jUB_nnwR
@@ -92,6 +97,8 @@ nix run github:pwnwriter/seg
 | `objdump` | binutils | Disassembly, PLT/GOT resolution |
 | `ldd` | glibc | Linked library detection |
 | `checksec` | checksec | Security protections |
+| `cc` | gcc/clang | Compiling hook libraries (`seg hook`) |
+| `libffi` | libffi-dev | FFI calling convention (`seg invoke`) |
 
 Missing tools won't crash `seg` — they degrade gracefully and report what couldn't be gathered.
 
@@ -107,6 +114,9 @@ Missing tools won't crash `seg` — they degrade gracefully and report what coul
     Analyze. Understand. Exploit binaries
                 @pwnwriter/seg
 ```
+
+<a name="usage-analyze"></a>
+### Analyze
 
 - <details> <summary><code> Markdown report to stdout </code></summary>
   &nbsp;
@@ -164,6 +174,60 @@ Missing tools won't crash `seg` — they degrade gracefully and report what coul
   seg analyze ./vuln --json | jq '.strategy'
   seg analyze ./vuln --json | jq '.dangerous_functions'
   seg analyze ./vuln --json | jq '.exploitation_hints'
+  ```
+</details>
+
+<a name="usage-invoke"></a>
+### Invoke
+
+- <details> <summary><code> Call a function from a shared library </code></summary>
+  &nbsp;
+
+  ```bash
+  seg invoke ./libmath.so add --ret i32 -- i32:2 i32:3
+  ```
+</details>
+
+- <details> <summary><code> Call a function that returns a string </code></summary>
+  &nbsp;
+
+  ```bash
+  seg invoke ./libgreet.so greet --ret string
+  ```
+</details>
+
+- <details> <summary><code> Call a function by address (Linux, ptrace) </code></summary>
+  &nbsp;
+
+  ```bash
+  seg invoke ./vuln --addr 0x401234 --ret i32 -- i32:42
+  ```
+</details>
+
+<a name="usage-hook"></a>
+### Hook
+
+- <details> <summary><code> Log calls to a function </code></summary>
+  &nbsp;
+
+  ```bash
+  seg hook ./vuln puts --action log
+  ```
+</details>
+
+- <details> <summary><code> Replace a function with your own </code></summary>
+  &nbsp;
+
+  ```bash
+  seg hook ./vuln rand --action replace --replace-lib ./fake_rand.so
+  ```
+</details>
+
+- <details> <summary><code> Pass arguments to the target binary </code></summary>
+  &nbsp;
+
+  ```bash
+  seg hook ./vuln gets --action log -- AAAAAAAAAA
   ```
 </details>
 

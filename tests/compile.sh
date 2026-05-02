@@ -23,4 +23,12 @@ echo "  ret2libc"
 cc -o "$BIN_DIR/heap_uaf" "$DIR/heap_uaf.c"
 echo "  heap_uaf"
 
+# test_invoke_lib: shared library for seg invoke tests
+cc -shared -fPIC -o "$BIN_DIR/test_invoke_lib.so" "$DIR/test_invoke_lib.c"
+echo "  test_invoke_lib.so"
+
+# test_hook_target: binary for seg hook tests
+cc -o "$BIN_DIR/test_hook_target" "$DIR/test_hook_target.c"
+echo "  test_hook_target"
+
 echo "Done. Binaries in $BIN_DIR/"

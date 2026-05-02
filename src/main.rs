@@ -1,5 +1,8 @@
 pub mod cli;
 pub mod engine;
+pub mod hook;
+pub mod invoke;
+pub mod output;
 pub mod report;
 
 use clap::Parser;
@@ -73,6 +76,87 @@ fn main() {
                     eprintln!("  {} wrote {}", "[seg]".bold().cyan(), dest.bold());
                 }
             }
+        }
+
+        Commands::Invoke {
+            library,
+            function,
+            args,
+            ret,
+            addr,
+        } => {
+            if !library.exists() {
+                eprintln!(
+                    "  {} file not found: {}",
+                    "error:".bold().red(),
+                    library.display()
+                );
+                process::exit(1);
+            }
+
+            let lib_path = match library.canonicalize() {
+                Ok(p) => p,
+                Err(e) => {
+                    eprintln!(
+                        "  {} cannot resolve path {}: {e}",
+                        "error:".bold().red(),
+                        library.display()
+                    );
+                    process::exit(1);
+                }
+            };
+
+            invoke::run(&lib_path, function.as_deref(), &args, &ret, addr.as_deref());
+        }
+
+        Commands::Hook {
+            binary,
+            function,
+            action,
+            replace_lib,
+            binary_args,
+        } => {
+            if !binary.exists() {
+                eprintln!(
+                    "  {} binary not found: {}",
+                    "error:".bold().red(),
+                    binary.display()
+                );
+                process::exit(1);
+            }
+
+            let binary_path = match binary.canonicalize() {
+                Ok(p) => p,
+                Err(e) => {
+                    eprintln!(
+                        "  {} cannot resolve path {}: {e}",
+                        "error:".bold().red(),
+                        binary.display()
+                    );
+                    process::exit(1);
+                }
+            };
+
+            if action == "replace" {
+                if let Some(ref lib) = replace_lib {
+                    if !lib.exists() {
+                        eprintln!(
+                            "  {} replacement library not found: {}",
+                            "error:".bold().red(),
+                            lib.display()
+                        );
+                        process::exit(1);
+                    }
+                }
+            }
+
+            hook::run(
+                &binary_path,
+                &function,
+                &action,
+                replace_lib.as_deref(),
+                &binary_args,
+            );
         }
     }
 }

@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/1c0c4fff-b294-4090-a9b2-43e83e77453d" width="311" />
+</p>
+
 # [`seg`](https://github.com/pwnwriter/seg)
 `Analyze. Understand. Exploit binaries` || [`seg`](https://github.com/pwnwriter/seg/),&nbsp; A CLI tool that gives you **actionable binary intelligence** in one command. Point it at any ELF binary and get a full recon report — protections, dangerous functions, symbols with PLT/GOT addresses, disassembly highlights, libc resolution, and a suggested exploit strategy. Built for [`CTF players`](https://en.wikipedia.org/wiki/Capture_the_flag_(cybersecurity)), [`pentesters`](https://en.wikipedia.org/wiki/Penetration_test), and [`AI agents`](https://en.wikipedia.org/wiki/Intelligent_agent).
 

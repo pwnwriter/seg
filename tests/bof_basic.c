@@ -4,6 +4,9 @@
 #include <stdlib.h>
 #include <string.h>
 
+// gets() removed from modern glibc headers; declare it manually for this intentionally-vulnerable binary
+extern char *gets(char *s);
+
 void win() {
     system("/bin/sh");
 }

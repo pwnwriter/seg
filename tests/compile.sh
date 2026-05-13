@@ -8,7 +8,7 @@ mkdir -p "$BIN_DIR"
 echo "Compiling test binaries into $BIN_DIR..."
 
 # bof_basic: classic buffer overflow, no canary, no PIE
-cc -Wno-deprecated-declarations -fno-stack-protector -o "$BIN_DIR/bof_basic" "$DIR/bof_basic.c"
+cc -Wno-deprecated-declarations -fno-stack-protector -no-pie -o "$BIN_DIR/bof_basic" "$DIR/bof_basic.c"
 echo "  bof_basic"
 
 # fmt_string: format string vulnerability
